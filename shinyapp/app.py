@@ -84,7 +84,7 @@ def server(input, output, session):
     @reactive.event(input.run)
     def predict_data():
         if not data_loaded: return None
-        
+        # Add new inputs here 
         user_input = pd.DataFrame({
             'AGE': [input.age()],
             'TOTCHOL': [input.chol()],
@@ -149,6 +149,7 @@ def server(input, output, session):
     @output
     @render.ui
     def rec_list():
+        # Add recommendations here 
         preds = predict_data()
         if preds is None: return ui.p("Predict to see results.")
         # Using Cox Model coefficients to show impact
