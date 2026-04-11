@@ -35,7 +35,8 @@ jobs:
             --name my_shiny_account
           
           # 2. Deploy the specific folder
-          # The "." refers to the directory we cd into
-          cd shinyapp && rsconnect deploy shiny . \
+          rsconnect deploy shiny ./shinyapp \
             --name my_shiny_account \
-            --title "heart-disease-risk-and-recommendations"
+            --title "heart-disease-risk-and-recommendations" \
+            --requirements ./shinyapp/requirements.txt \
+            --force-generate
