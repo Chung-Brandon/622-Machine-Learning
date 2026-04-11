@@ -43,6 +43,5 @@ jobs:
           # 4. Deploy
           rsconnect deploy shiny . \
             --name my_shiny_account \
-            --app-id 13548978 \
             --title "heart-disease-risk-and-recommendations" \
             --force-generate
