@@ -44,4 +44,5 @@ jobs:
           rsconnect deploy shiny . \
             --name my_shiny_account \
             --title "heart-disease-risk-and-recommendations" \
+            --new \
             --force-generate
