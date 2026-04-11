@@ -25,12 +25,12 @@ matplotlib==3.10.8
 mdit-py-plugins==0.5.0
 mdurl==0.1.2
 narwhals==2.19.0
-numpy==2.4.4
+numpy==1.26.4
 opentelemetry-api==1.40.0
 orjson==3.11.8
 osqp==0.6.7.post3
 packaging==26.0
-pandas==3.0.0
+pandas==2.2.3
 pillow==12.2.0
 platformdirs==4.9.6
 prompt_toolkit==3.0.52
@@ -39,9 +39,9 @@ python-dateutil==2.9.0.post0
 python-multipart==0.0.24
 pytz==2026.1.post1
 questionary==2.1.1
-scikit-learn==1.8.0
-scikit-survival==0.27.0
-scipy==1.17.1
+scikit-learn==1.5.2
+scikit-survival==0.23.1
+scipy==1.13.1
 scs==3.2.7
 shiny==1.6.0
 shinychat==0.2.9
