@@ -44,5 +44,7 @@ jobs:
           # It will automatically find 'requirements.txt' in the current folder.
           rsconnect deploy shiny . \
             --name my_shiny_account \
+            --app-id 13548978 \
             --title "heart-disease-risk-and-recommendations" \
+            --requirements requirements.txt \
             --force-generate
