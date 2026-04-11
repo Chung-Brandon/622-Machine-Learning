@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "locale": "English_United States.1252",
+  "metadata": {
+    "appmode": "python-shiny",
+    "entrypoint": "app"
+  },
+  "python": {
+    "version": "3.11.9",
+    "package_manager": {
+      "name": "pip",
+      "version": "24.0",
+      "package_file": "requirements.txt"
+    }
+  },
+  "files": {
+    "requirements.txt": {
+      "checksum": "f22bcfdf3f8642f76c318729c5be6737"
+    },
+    "app.py": {
+      "checksum": "88ae6bb7707532e1117def1351096c68"
+    },
+    "framingham_data.csv": {
+      "checksum": "df0096f1a2943445a90002dcf4164f32"
+    }
+  }
+}
