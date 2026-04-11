@@ -21,6 +21,7 @@ jobs:
 
       - name: Install Deployment Tool
         run: |
+          python -m pip install --upgrade pip wheel
           pip install rsconnect-python shiny
           # Ensure any other dependencies are installed
           if [ -f shinyapp/requirements.txt ]; then pip install -r shinyapp/requirements.txt; fi
@@ -44,5 +45,4 @@ jobs:
           rsconnect deploy shiny . \
             --name my_shiny_account \
             --title "heart-disease-risk-and-recommendations" \
-            --new \
             --force-generate
