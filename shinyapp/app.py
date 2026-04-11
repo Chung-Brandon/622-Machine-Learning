@@ -152,6 +152,7 @@ def server(input, output, session):
         # Add recommendations here 
         preds = predict_data()
         if preds is None: return ui.p("Predict to see results.")
+            
         # Using Cox Model coefficients to show impact (leverage models more for recommendations)
         coefs = cph.params_
         recs = [f"Baseline monitoring for age {input.age()}."]
