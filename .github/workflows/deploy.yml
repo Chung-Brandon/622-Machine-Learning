@@ -9,12 +9,30 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Deploy to shinyapps.io
-        uses: BDSI-Utwente/shinyapps-deploy-github-action@v1
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          appDir: shinyapp  # <--- Only run if this folder is updated
-          appName: your-app-name 
-          accountName: ${{ secrets.SHINYAPPS_ACCOUNT }}
-          accountToken: ${{ secrets.SHINYAPPS_TOKEN }}
-          accountSecret: ${{ secrets.SHINYAPPS_SECRET }}
+          python-version: '3.11' # Current stable version for shinyapps.io
+
+      - name: Install Deployment Tool
+        run: |
+          pip install rsconnect-python shiny
+          # Ensure any other dependencies are installed
+          if [ -f shinyapp/requirements.txt ]; then pip install -r shinyapp/requirements.txt; fi
+
+      - name: Deploy to shinyapps.io
+        run: |
+          # 1. Add your shinyapps.io account info using secrets
+          rsconnect add \
+            --account ${{ secrets.SHINYAPPS_ACCOUNT }} \
+            --token ${{ secrets.SHINYAPPS_TOKEN }} \
+            --secret ${{ secrets.SHINYAPPS_SECRET }} \
+            --name my_shiny_account
+          
+          # 2. Deploy the specific folder
+          # The "." refers to the directory we cd into
+          cd shinyapp && rsconnect deploy shiny . \
+            --name my_shiny_account \
+            --title "heart-disease-risk-and-recommendations"
