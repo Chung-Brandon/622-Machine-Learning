@@ -1,12 +1,3 @@
-# %% [python]
-# packages:
-#   - pandas
-#   - matplotlib
-#   - lifelines
-#   - autograd
-#   - autograd-gamma
-#   - numpy
-
 from shiny import App, render, ui, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
