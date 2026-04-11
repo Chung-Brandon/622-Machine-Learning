@@ -27,16 +27,22 @@ jobs:
 
       - name: Deploy to shinyapps.io
         run: |
-          # 1. Add your shinyapps.io account info using secrets
+          # 1. Add account
           rsconnect add \
             --account ${{ secrets.SHINYAPPS_ACCOUNT }} \
             --token ${{ secrets.SHINYAPPS_TOKEN }} \
             --secret ${{ secrets.SHINYAPPS_SECRET }} \
             --name my_shiny_account
           
-          # 2. Deploy using --environment to point to your requirements.txt
-          rsconnect deploy shiny ./shinyapp \
+          # 2. Change to the app directory
+          cd shinyapp
+          
+          # 3. Verify files are present (this helps us debug if it fails)
+          ls -F
+          
+          # 4. Deploy without the -E flag. 
+          # It will automatically find 'requirements.txt' in the current folder.
+          rsconnect deploy shiny . \
             --name my_shiny_account \
             --title "heart-disease-risk-and-recommendations" \
-            --environment requirements.txt \
             --force-generate
