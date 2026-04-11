@@ -34,9 +34,9 @@ jobs:
             --secret ${{ secrets.SHINYAPPS_SECRET }} \
             --name my_shiny_account
           
-          # 2. Deploy the specific folder
+          # 2. Deploy using --environment to point to your requirements.txt
           rsconnect deploy shiny ./shinyapp \
             --name my_shiny_account \
             --title "heart-disease-risk-and-recommendations" \
-            --requirements ./shinyapp/requirements.txt \
+            --environment ./shinyapp/requirements.txt \
             --force-generate
