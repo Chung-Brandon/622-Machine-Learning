@@ -38,5 +38,5 @@ jobs:
           rsconnect deploy shiny ./shinyapp \
             --name my_shiny_account \
             --title "heart-disease-risk-and-recommendations" \
-            --environment ./shinyapp/requirements.txt \
+            --environment requirements.txt \
             --force-generate
