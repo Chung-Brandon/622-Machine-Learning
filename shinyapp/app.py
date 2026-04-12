@@ -1,64 +1,22 @@
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Force a non-interactive backend
 import matplotlib.pyplot as plt
+import joblib
 from shiny import App, render, reactive, ui
-from sksurv.util import Surv
-from sksurv.ensemble import RandomSurvivalForest
-from sklearn.model_selection import train_test_split
-from sklearn.impute import KNNImputer
-from sklearn.preprocessing import StandardScaler
 
-# --- 1. DATA & ML INITIALIZATION ---
-data_loaded = False
-error_log = ""
-
-# Model, Scaler, and Imputer Setup
-rsf = RandomSurvivalForest(
-    n_estimators=500,
-    min_samples_split=10,
-    min_samples_leaf=15,
-    max_features="sqrt",
-    n_jobs=-1,
-    random_state=42
-)
-scaler = StandardScaler()
-imputer = KNNImputer(n_neighbors=5)
-
+# --- 1. LOAD PRE-TRAINED ARTIFACTS ---
 try:
-    # Processing the local framingham_data.csv
-    df = pd.read_csv("framingham_data.csv")
-    df.columns = [col.upper() for col in df.columns]
-
-    # Required clinical columns for both features and targets
-    required_cols = [
-        "AGE", "SEX", "SYSBP", "DIABP", "TOTCHOL", "BMI",
-        "GLUCOSE", "CURSMOKE", "CIGPDAY", "DIABETES", "BPMEDS", "PREVHYP",
-        "TIMECVD", "CVD"
-    ]
-    
-    if all(c in df.columns for c in required_cols):
-        df = df.dropna(subset=required_cols)
-        features = required_cols[:-2] 
-        
-        X = df[features].astype(float)
-        y = Surv.from_arrays(
-            event=df["CVD"].astype(bool),
-            time=df["TIMECVD"].astype(float)
-        )
-
-        # 80/20 Train-Test Split
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        
-        # Fit Pipeline
-        scaler.fit(X_train)
-        X_train_scaled = scaler.transform(X_train)
-        imputer.fit(X_train_scaled)
-        rsf.fit(X_train_scaled, y_train)
-        data_loaded = True
-    else:
-        error_log = f"Missing: {[c for c in required_cols if c not in df.columns]}"
+    rsf = joblib.load("model.joblib")
+    imputer = joblib.load("imputer.joblib")
+    scaler = joblib.load("scaler.joblib")
+    calibrator = joblib.load("calibrator.joblib") 
+    data_loaded = True
+    error_log = "System ready."
 except Exception as e:
-    error_log = str(e)
+    data_loaded = False
+    error_log = f"Error loading model files: {e}"
 
 # UI Helper
 def input_row(id, label, value, is_select=False, choices=None):
@@ -103,12 +61,16 @@ app_ui = ui.page_fluid(
                 ui.output_ui("imputation_alert"),
                 ui.hr(),
                 ui.div(
-                    ui.markdown("**⚠️ Medical Disclaimer:** This tool is for educational purposes only. Always consult a healthcare professional."),
+                    ui.markdown("**⚠️ Medical Disclaimer:** This tool is for educational purposes only."),
                     style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; font-size: 0.9em; border-left: 5px solid #6c757d;"
                 )
             ),
             ui.nav_panel("Health Guidance", ui.output_ui("rec_list")),
-            ui.nav_panel("System Logs", ui.markdown(f"**Log:** `{error_log}`"))
+            ui.nav_panel("Patient Data", 
+                ui.div(style="margin-top: 20px;"),
+                ui.output_text_verbatim("formatted_inputs") 
+            ),
+            ui.nav_panel("System Logs", ui.output_ui("log_display"))
         )
     )
 )
@@ -117,7 +79,7 @@ app_ui = ui.page_fluid(
 def server(input, output, session):
 
     @reactive.calc
-    @reactive.event(input.run)
+    @reactive.event(input.run) # This is the "gatekeeper"
     def process_data():
         if not data_loaded: return None
         
@@ -138,27 +100,77 @@ def server(input, output, session):
                 imputed_list.append(feat)
         
         user_df = pd.DataFrame([user_vals])
+        
+        # Scaling and Imputing using pre-trained objects
         scaled_user = scaler.transform(user_df)
         imputed_user = imputer.transform(scaled_user)
         
-        # FIX: return_array=False ensures we get StepFunction objects with .x and .y
+        # Get raw risk score
+        raw_risk_score = rsf.predict(imputed_user)
+        
+        # Apply Platt Scaling to get calibrated probability
+        calibrated_prob = calibrator.predict_proba(raw_risk_score.reshape(-1, 1))[0][1]
+        
+        # Get survival function for the plot
         surv_funcs = rsf.predict_survival_function(imputed_user, return_array=False)
-        return {"rsf": surv_funcs[0], "imputed": imputed_list}
+        
+        return {
+            "rsf": surv_funcs[0], 
+            "calibrated_risk": calibrated_prob * 100, # Percentage
+            "imputed": imputed_list,
+            "user_vals": user_vals
+        }
+    
+    @reactive.calc
+    def get_model_guidance():
+        res = process_data()
+        if res is None or not data_loaded: return []
+        
+        base_risk = res["calibrated_risk"]
+        user_df_raw = pd.DataFrame([res["user_vals"]]) # You'll need to store user_vals in process_data
+        
+        # Factors people can actually change
+        improvements = {
+            "SYSBP": {"target": 120.0, "label": "Lowering Blood Pressure to 120"},
+            "TOTCHOL": {"target": 180.0, "label": "Lowering Cholesterol to 180"},
+            "CURSMOKE": {"target": 0.0, "label": "Quitting Smoking"},
+            "BMI": {"target": 22.0, "label": "Reaching a healthy BMI (22)"}
+        }
+        
+        impacts = []
+        for feat, info in improvements.items():
+            if feat in user_df_raw.columns and not pd.isna(user_df_raw[feat].values[0]):
+                if user_df_raw[feat].values[0] <= info["target"]:
+                    continue
+                
+            sim_df = user_df_raw.copy()
+            sim_df[feat] = info["target"]
+            
+            # Predict new risk
+            sim_scaled = scaler.transform(sim_df)
+            sim_imputed = imputer.transform(sim_scaled)
+            sim_raw_score = rsf.predict(sim_imputed)
+            sim_risk = calibrator.predict_proba(sim_raw_score.reshape(-1, 1))[0][1] * 100
+            
+            # This is the calculation based on the Platt calibration results
+            reduction = base_risk - sim_risk
+            if reduction > 0.5: # Only show if it improves risk by at least 0.5%
+                impacts.append({"label": info["label"], "reduction": reduction})
+        
+        # Sort by most impact first
+        return sorted(impacts, key=lambda x: x["reduction"], reverse=True)
 
     @render.ui
     def risk_badge():
         res = process_data()
         if res is None: return ui.p("Adjust factors and click 'Analyze Risk Factors'.")
         
-        # Use .x and .y from the StepFunction object
-        rsf_func = res["rsf"]
-        idx = np.abs(rsf_func.x - 3652).argmin()
-        risk_pct = (1 - rsf_func.y[idx]) * 100
+        risk_pct = res["calibrated_risk"]
         color = "#e74c3c" if risk_pct > 20 else "#f1c40f" if risk_pct > 10 else "#27ae60"
         
         return ui.div(
             ui.h3(f"Predicted 10-Year Risk: {risk_pct:.1f}%"),
-            style=f"padding: 20px; color: white; background-color: {color}; border-radius: 12px; text-align: center; margin-bottom: 10px;"
+            style=f"padding: 20px; color: white; background-color: {color}; border-radius: 12px; text-align: center;"
         )
 
     @render.plot
@@ -171,22 +183,86 @@ def server(input, output, session):
         ax.set_ylim(0, 1.05)
         ax.set_xlabel("Years into Future")
         ax.set_ylabel("Probability")
-        ax.grid(True, alpha=0.3)
         return fig
+
+    @render.text
+    def formatted_inputs():
+        res = process_data()
+        if not res: 
+            return "No data analyzed yet. Please click 'Analyze Risk Factors' first."
+        
+        vals = res["user_vals"]
+        
+        # 1. Define how to translate numbers back to labels
+        label_map = {
+            "SEX": {1.0: "M", 2.0: "F"},
+            "CURSMOKE": {1.0: "Yes", 0.0: "No"},
+            "DIABETES": {1.0: "Yes", 0.0: "No"},
+            "BPMEDS": {1.0: "Yes", 0.0: "No"},
+            "PREVHYP": {1.0: "Yes", 0.0: "No"}
+        }
+        
+        lines = []
+        for key, val in vals.items():
+            if pd.isna(val):
+                continue
+                
+            # 2. Check if the column needs a label translation
+            if key in label_map:
+                display_val = label_map[key].get(val, val)
+            # 3. Clean up floats that should be integers (like Age or Cigs/Day)
+            elif val == int(val):
+                display_val = int(val)
+            else:
+                display_val = val
+                
+            lines.append(f"{key:<10}: {display_val}")
+        
+        return "--- PATIENT DATA SUMMARY ---\n" + "\n".join(lines)
+
+
+    @render.ui
+    def log_display():
+        return ui.markdown(f"**Log Status:** `{error_log}`")
 
     @render.ui
     def imputation_alert():
         res = process_data()
         if res and res["imputed"]:
-            return ui.div(f"ℹ️ Note that the results may be less accurate if fields are omitted.", 
-                          style="color: #856404; background-color: #fff3cd; padding: 12px; border-radius: 6px;")
+            cols = ", ".join(res["imputed"])
+            return ui.div(f"ℹ️ Note: Missing values for ({cols}) were estimated using KNN. Fill in all known fields for more accurate results.", 
+                          style="color: #856404; background-color: #fff3cd; padding: 12px; border-radius: 6px; margin-top: 10px;")
 
     @render.ui
     def rec_list():
         res = process_data()
-        if not res: return ui.p("Run analysis to see guidance.")
-        recs = ["Maintain regular checkups with your primary care provider."]
-        if input.has_sysbp() and input.sysbp() > 140: recs.append("📉 **Blood Pressure:** Focus on reduction.")
-        return ui.tags.ul([ui.tags.li(ui.markdown(r)) for r in recs])
+        if res is None:
+            return ui.p("Please click 'Analyze Risk Factors' on the sidebar first.")
+        
+        impacts = get_model_guidance()
+        
+        if not impacts:
+            return ui.div(
+                ui.p("Your vitals are within healthy ranges, or you haven't run the analysis yet."),
+                ui.p("Continue maintaining a healthy lifestyle and regular checkups.")
+            )
+            
+        # Create a list of recommendations based on model impact
+        list_items = []
+        for item in impacts:
+            list_items.append(
+                ui.tags.li(
+                    ui.markdown(f"**{item['label']}**: Could reduce your 10-year risk by **{item['reduction']:.1f}%**")
+                )
+            )
+            
+        return ui.div(
+            ui.h4("Your Top Improvement Opportunities:"),
+            ui.p("Based on the model, these changes would have the biggest impact on your heart health:"),
+            ui.tags.ul(list_items, style="font-size: 1.1em; line-height: 1.6;"),
+            ui.hr(),
+            ui.p("💡 *These calculations are simulated by the AI model based on your unique profile.*", style="font-size: 0.8em; color: #666;")
+        )
+
 
 app = App(app_ui, server)
