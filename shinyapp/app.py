@@ -178,14 +178,14 @@ def server(input, output, session):
     def imputation_alert():
         res = process_data()
         if res and res["imputed"]:
-            return ui.div(f"ℹ️ Estimated via KNN: {', '.join(res['imputed'])}", 
+            return ui.div(f"ℹ️ Note that the results may be less accurate if fields are omitted.", 
                           style="color: #856404; background-color: #fff3cd; padding: 12px; border-radius: 6px;")
 
     @render.ui
     def rec_list():
         res = process_data()
         if not res: return ui.p("Run analysis to see guidance.")
-        recs = ["Maintain regular GP screenings."]
+        recs = ["Maintain regular checkups with your primary care provider."]
         if input.has_sysbp() and input.sysbp() > 140: recs.append("📉 **Blood Pressure:** Focus on reduction.")
         return ui.tags.ul([ui.tags.li(ui.markdown(r)) for r in recs])
 
