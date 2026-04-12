@@ -52,8 +52,9 @@ def train_and_save_model():
         # We use n_jobs=-1 here to speed up local training
         print("Training Random Survival Forest (this may take a minute)...")
         rsf = RandomSurvivalForest(
-            n_estimators=500,
-            min_samples_split=10,
+            n_estimators=100, # Reduce size of model to host app
+            max_depth=8, # Limits the size of each tree
+            min_samples_split=20,
             min_samples_leaf=15,
             max_features="sqrt",
             n_jobs=-1,
