@@ -66,11 +66,14 @@ def train_and_save_model():
         # Get raw risk scores for the test set
         # (Higher score = higher risk of the event occurring)
         raw_scores_test = rsf.predict(imputer.transform(scaler.transform(X_test)))
-        event_observed_test = y_test["event"].astype(int)
+        
+        # We want to focus on the within 10 years timeframe only for tuning risk
+        event_within_10y = (y_test["event"]) & (y_test["time"] <= 3650)
+        event_within_10y = event_within_10y.astype(int)
 
         # Fit Logistic Regression: Raw Score -> Binary Outcome
         calibrator = LogisticRegression()
-        calibrator.fit(raw_scores_test.reshape(-1, 1), event_observed_test)
+        calibrator.fit(raw_scores_test.reshape(-1, 1), event_within_10y)
 
         # Save Artifacts for the Shiny App
         print("Saving artifacts...")
