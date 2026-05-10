@@ -5,6 +5,7 @@ matplotlib.use('Agg')  # Force a non-interactive backend
 import matplotlib.pyplot as plt
 import joblib
 from shiny import App, render, reactive, ui
+from patsy import dmatrix
 
 # --- 1. LOAD PRE-TRAINED ARTIFACTS ---
 try:
@@ -82,7 +83,8 @@ def server(input, output, session):
     @reactive.event(input.run) # This is the "gatekeeper"
     def process_data():
         if not data_loaded: return None
-        
+
+        # Map UI inputs to the 12 raw features used in Period 1
         feature_map = {
             "AGE": "age", "SEX": "sex", "SYSBP": "sysbp", "DIABP": "diabp",
             "TOTCHOL": "chol", "BMI": "bmi", "GLUCOSE": "glucose", 
@@ -93,72 +95,80 @@ def server(input, output, session):
         user_vals = {}
         imputed_list = []
         for feat, inp_id in feature_map.items():
-            if getattr(input, f"has_{inp_id}")():
-                user_vals[feat] = float(getattr(input, inp_id)())
-            else:
+            val = getattr(input, inp_id)()
+            if val is None or val == "":
                 user_vals[feat] = np.nan
                 imputed_list.append(feat)
+            else:
+                user_vals[feat] = float(val)
+            
+        raw_df = pd.DataFrame([user_vals])
+
+        # Impute raw values (Scale -> Impute -> Inverse Scale)
+        # This ensures logs and MAP are calculated on "clean" data
+        X_scaled = scaler.transform(raw_df) 
+        X_imputed = imputer.transform(X_scaled)
+        # Convert back to real numbers so math (Logs/MAP) works
+        clean_df = pd.DataFrame(scaler.inverse_transform(X_imputed), columns=raw_df.columns)
+
+        # Create Engineered Features (Must match training logic)
+        clean_df["LOG_TOTCHOL"] = np.log1p(clean_df["TOTCHOL"])
+        clean_df["LOG_CIGS"] = np.log1p(clean_df["CIGPDAY"])
+        clean_df["MAP"] = clean_df["DIABP"] + (1/3) * (clean_df["SYSBP"] - clean_df["DIABP"])
+
+        # Generate Age Splines
+        age_splines = dmatrix("bs(clean_df.AGE, df=4, include_intercept=False)", 
+                            data=clean_df, return_type="dataframe")
+        age_splines.columns = [f"AGE_SPLINE_{i}" for i in range(age_splines.shape[1])]
         
-        user_df = pd.DataFrame([user_vals])
+        # Assemble final vector in the EXACT order of the training 'model_cols'
+        final_features = [
+            "SEX", "MAP", "BMI", "LOG_TOTCHOL", "GLUCOSE", 
+            "CURSMOKE", "LOG_CIGS", "DIABETES", "BPMEDS", "PREVHYP"
+        ] + list(age_splines.columns)
         
-        # Scaling and Imputing using pre-trained objects
-        scaled_user = scaler.transform(user_df)
-        imputed_user = imputer.transform(scaled_user)
-        
-        # Get raw risk score
-        raw_risk_score = rsf.predict(imputed_user)
-        
-        # Apply Platt Scaling to get calibrated probability
+        X_input = pd.concat([clean_df, age_splines], axis=1)[final_features]
+
+        # Predict and Calibrate
+        raw_risk_score = rsf.predict(X_input)
         calibrated_prob = calibrator.predict_proba(raw_risk_score.reshape(-1, 1))[0][1]
+        surv_funcs = rsf.predict_survival_function(X_input, return_array=False)
         
-        # Get survival function for the plot
-        surv_funcs = rsf.predict_survival_function(imputed_user, return_array=False)
-        
-        return {
-            "rsf": surv_funcs[0], 
-            "calibrated_risk": calibrated_prob * 100, # Percentage
-            "imputed": imputed_list,
-            "user_vals": user_vals
-        }
-    
-    @reactive.calc
-    def get_model_guidance():
-        res = process_data()
-        if res is None or not data_loaded: return []
-        
-        base_risk = res["calibrated_risk"]
-        user_df_raw = pd.DataFrame([res["user_vals"]]) # You'll need to store user_vals in process_data
-        
-        # Factors people can actually change
+        impacts = []
         improvements = {
             "SYSBP": {"target": 120.0, "label": "Lowering Blood Pressure to 120"},
             "TOTCHOL": {"target": 180.0, "label": "Lowering Cholesterol to 180"},
             "CURSMOKE": {"target": 0.0, "label": "Quitting Smoking"},
             "BMI": {"target": 22.0, "label": "Reaching a healthy BMI (22)"}
         }
-        
-        impacts = []
+
+        base_risk_pct = calibrated_prob * 100
+
         for feat, info in improvements.items():
-            if feat in user_df_raw.columns and not pd.isna(user_df_raw[feat].values[0]):
-                if user_df_raw[feat].values[0] <= info["target"]:
-                    continue
+            if clean_df[feat].values[0] > info["target"]:
+                sim_df = clean_df.copy()
+                sim_df[feat] = info["target"]
                 
-            sim_df = user_df_raw.copy()
-            sim_df[feat] = info["target"]
-            
-            # Predict new risk
-            sim_scaled = scaler.transform(sim_df)
-            sim_imputed = imputer.transform(sim_scaled)
-            sim_raw_score = rsf.predict(sim_imputed)
-            sim_risk = calibrator.predict_proba(sim_raw_score.reshape(-1, 1))[0][1] * 100
-            
-            # This is the calculation based on the Platt calibration results
-            reduction = base_risk - sim_risk
-            if reduction > 0.5: # Only show if it improves risk by at least 0.5%
-                impacts.append({"label": info["label"], "reduction": reduction})
-        
-        # Sort by most impact first
-        return sorted(impacts, key=lambda x: x["reduction"], reverse=True)
+                # RE-CALCULATE dependent features for simulation
+                sim_df["LOG_TOTCHOL"] = np.log1p(sim_df["TOTCHOL"])
+                sim_df["LOG_CIGS"] = np.log1p(sim_df["CIGPDAY"])
+                sim_df["MAP"] = sim_df["DIABP"] + (1/3) * (sim_df["SYSBP"] - sim_df["DIABP"])
+                
+                # Assemble simulation vector (Keep splines from baseline)
+                X_sim = pd.concat([sim_df, age_splines], axis=1)[final_features]
+                sim_risk = calibrator.predict_proba(rsf.predict(X_sim).reshape(-1, 1))[0][1] * 100
+                
+                reduction = base_risk_pct - sim_risk
+                if reduction > 0.5:
+                    impacts.append({"label": info["label"], "reduction": reduction})
+
+        return {
+            "rsf": surv_funcs[0], 
+            "calibrated_risk": calibrated_prob * 100, 
+            "imputed": imputed_list,
+            "user_vals": user_vals,
+            "guidance": sorted(impacts, key=lambda x: x["reduction"], reverse=True) 
+        }
 
     @render.ui
     def risk_badge():
@@ -193,7 +203,7 @@ def server(input, output, session):
         
         vals = res["user_vals"]
         
-        # 1. Define how to translate numbers back to labels
+        # Define how to translate numbers back to labels
         label_map = {
             "SEX": {1.0: "M", 2.0: "F"},
             "CURSMOKE": {1.0: "Yes", 0.0: "No"},
@@ -207,10 +217,10 @@ def server(input, output, session):
             if pd.isna(val):
                 continue
                 
-            # 2. Check if the column needs a label translation
+            # Check if the column needs a label translation
             if key in label_map:
                 display_val = label_map[key].get(val, val)
-            # 3. Clean up floats that should be integers (like Age or Cigs/Day)
+            # Clean up floats that should be integers (like Age or Cigs/Day)
             elif val == int(val):
                 display_val = int(val)
             else:
@@ -237,9 +247,9 @@ def server(input, output, session):
     def rec_list():
         res = process_data()
         if res is None:
-            return ui.p("Please click 'Analyze Risk Factors' on the sidebar first.")
+            return ui.p("Please click 'Analyze Risk Factors' to see guidance.")
         
-        impacts = get_model_guidance()
+        impacts = res["guidance"]
         
         if not impacts:
             return ui.div(
