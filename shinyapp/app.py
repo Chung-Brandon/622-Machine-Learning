@@ -131,12 +131,19 @@ def server(input, output, session):
             user_vals = {}
             imputed_list = []
             for feat, inp_id in feature_map.items():
-                val = getattr(input, inp_id)()
-                if val is None or val == "":
+                # Read the numerical text input value directly
+                text_box_value = getattr(input, inp_id)()
+                
+                # Checks by prefix has_. Adjust this if naming changes are made.
+                checkbox_id = f"has_{inp_id}"
+                checkbox_active = getattr(input, checkbox_id)() 
+                
+                # If the checkbox is unchecked (False), force an explicit imputation state.
+                if checkbox_active is False or text_box_value is None or text_box_value == "":
                     user_vals[feat] = np.nan
-                    imputed_list.append(feat)
+                    imputed_list.append(feat) # Tracks which values were dropped for imputation
                 else:
-                    user_vals[feat] = float(val)
+                    user_vals[feat] = float(text_box_value)
                 
             raw_df = pd.DataFrame([user_vals])
             scaled_raw = scaler.transform(raw_df) 
@@ -270,7 +277,7 @@ def server(input, output, session):
                 "guidance": sorted(impacts, key=lambda x: x["reduction"], reverse=True) 
             }
         except Exception as err:
-            print(err)
+            print("An error occurred while processing user inputs.")
             raise err
 
 
