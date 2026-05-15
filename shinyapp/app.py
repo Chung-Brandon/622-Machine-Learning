@@ -97,7 +97,13 @@ app_ui = ui.page_fluid(
                 ui.div(
                     ui.markdown("**⚠️ Medical Disclaimer:** This tool is for educational purposes only."),
                     style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; font-size: 0.9em; border-left: 5px solid #6c757d;"
-                )
+                ),
+                         
+                ui.div(
+                    ui.markdown(
+                        "** Note:** Model trained on adults aged 30–70. Values outside this range are automatically adjusted to the nearest supported age."),
+                    style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; font-size: 0.9em; border-left: 5px solid #6c757d;"
+                ),
             ),
             ui.nav_panel("Health Guidance", ui.output_ui("rec_list")),
             ui.nav_panel("Patient Data", 
@@ -165,6 +171,9 @@ def server(input, output, session):
             clean_df["LOG_TOTCHOL"] = np.log1p(clean_df["TOTCHOL"])
             clean_df["LOG_CIGS"] = np.log1p(clean_df["CIGPDAY"])
             clean_df["MAP"] = clean_df["DIABP"] + (1/3) * (clean_df["SYSBP"] - clean_df["DIABP"])
+
+            # Clamp age to the spline domain used during training
+            clean_df["AGE"] = clean_df["AGE"].clip(lower=30, upper=70)
             
             # Generate Age Splines
             spline_formula = "bs(clean_df.AGE, df=4, lower_bound=30, upper_bound=70, include_intercept=False)"
