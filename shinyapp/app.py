@@ -34,9 +34,9 @@ except Exception as e:
     data_loaded = False
     error_log = f"Error loading model files: {e}"
 
-# UI Helper
-def input_row(id, label, value, is_select=False, choices=None):
-    widget = ui.input_select(id, None, choices) if is_select else ui.input_numeric(id, None, value)
+# Updated UI Helper to cleanly accept numeric boundaries
+def input_row(id, label, value, is_select=False, choices=None, **kwargs):
+    widget = ui.input_select(id, None, choices) if is_select else ui.input_numeric(id, None, value, **kwargs)
     return ui.row(
         ui.column(7, ui.span(label), widget),
         ui.column(5, ui.input_checkbox(f"has_{id}", "Known", value=True)),
@@ -53,7 +53,7 @@ app_ui = ui.page_fluid(
             ui.div(
                 ui.h4("Patient Vitals"),
                 ui.p("Uncheck if factor is unknown:", style="font-size: 0.85em; color: #666;"),
-                input_row("age", "Age", 45),
+                input_row("age", "Age", 45, min=30, max=69), # adding user input bounds to match training data and prevent spline extrapolation issues
                 input_row("sex", "Sex", None, True, {"1": "M", "2": "F"}),
                 input_row("sysbp", "Sys BP", 120),
                 input_row("diabp", "Dia BP", 80),
@@ -97,7 +97,12 @@ app_ui = ui.page_fluid(
                 ui.div(
                     ui.markdown("**⚠️ Medical Disclaimer:** This tool is for educational purposes only."),
                     style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; font-size: 0.9em; border-left: 5px solid #6c757d;"
-                )
+                ),
+                ui.div(
+                    ui.markdown(
+                        "** Note:** Model trained on adults aged 30–70. Values outside this range are automatically adjusted to the nearest supported age."),
+                    style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; font-size: 0.9em; border-left: 5px solid #6c757d;"
+                ),
             ),
             ui.nav_panel("Health Guidance", ui.output_ui("rec_list")),
             ui.nav_panel("Patient Data", 
@@ -165,6 +170,9 @@ def server(input, output, session):
             clean_df["LOG_TOTCHOL"] = np.log1p(clean_df["TOTCHOL"])
             clean_df["LOG_CIGS"] = np.log1p(clean_df["CIGPDAY"])
             clean_df["MAP"] = clean_df["DIABP"] + (1/3) * (clean_df["SYSBP"] - clean_df["DIABP"])
+
+            # Clamp age to the spline domain used during training
+            clean_df["AGE"] = clean_df["AGE"].clip(lower=30.0, upper=69.9)
             
             # Generate Age Splines
             spline_formula = "bs(clean_df.AGE, df=4, lower_bound=30, upper_bound=70, include_intercept=False)"
