@@ -85,7 +85,7 @@ def train_and_save_model():
             temp_df["MAP"] = temp_df["DIABP"] + (1/3) * (temp_df["SYSBP"] - temp_df["DIABP"])
             
             # Age Splines to reduce jaggedness
-            age_splines = dmatrix("bs(temp_df.AGE, df=4, include_intercept=False)", 
+            age_splines = dmatrix("bs(temp_df.AGE, df=4, lower_bound=30, upper_bound=70, include_intercept=False)", # adding bounds to train file for mathematical consistency with the Shiny App
                                   data=temp_df, return_type="dataframe")
             age_splines.columns = [f"AGE_SPLINE_{i}" for i in range(age_splines.shape[1])]
             age_splines = age_splines.reset_index(drop=True)
