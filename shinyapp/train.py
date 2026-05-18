@@ -20,6 +20,9 @@ from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler
 
+from sklearn.inspection import permutation_importance
+import matplotlib.pyplot as plt
+
 def train_and_save_model():
     try:
         # Load Data
@@ -113,7 +116,46 @@ def train_and_save_model():
             random_state=42
         )
         rsf.fit(X_train_final, y_train)
+        
+        # Permutation importance on the final engineered feature matrix
+        result = permutation_importance(
+            rsf,
+            X_train_final,
+            y_train,
+            n_repeats=20,
+            random_state=42,
+            n_jobs=1
+        )
 
+        # Build DataFrame
+        importance_df = pd.DataFrame({
+            "feature": X_train_final.columns,
+            "importance": result.importances_mean,
+            "std": result.importances_std
+        }).sort_values("importance", ascending=False)
+
+        # Plot
+        plt.figure(figsize=(10, 7))
+        plt.barh(
+            importance_df["feature"],
+            importance_df["importance"],
+            xerr=importance_df["std"],
+            color="steelblue",
+            ecolor="black",
+            capsize=3
+        )
+        plt.xlabel("Permutation Importance (Mean Decrease in Concordance)")
+        plt.ylabel("Feature")
+        plt.title("Random Survival Forest — Permutation Feature Importance")
+        plt.gca().invert_yaxis()
+        plt.tight_layout()
+
+        # Save figure for Shiny app
+        plt.savefig("feature_importance.png", dpi=300)
+        plt.close()
+
+        print("Saved permutation importance plot as feature_importance.png")
+        
         print("Calibrating model (Platt Scaling)")
         # Get raw risk scores for the test set
         # (Higher score = higher risk of the event occurring)
