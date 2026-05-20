@@ -4,7 +4,7 @@ Artifacts reduce the load on the live environment.
 Run this whenever a change is made to generate new .joblib files.
 Upload .joblib files into the shinyapp folder.
 The full command assuming Python is on PATH and terminal is in the same directory as this file:
-python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt && python train.py
+python -m venv .venv && .venv/Scripts/activate && pip install -r requirements.txt && python train.py
 Once inside the virtual environment, only the regular Python commands need to be run.
 """
 import pandas as pd
@@ -14,6 +14,7 @@ from patsy import dmatrix
 
 from sksurv.util import Surv
 from sksurv.ensemble import RandomSurvivalForest
+from sksurv.metrics import concordance_index_censored, brier_score
 from lifelines import CoxPHFitter # Cox Proportional Hazards to recalibrate RSF
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
@@ -191,6 +192,44 @@ def train_and_save_model():
         joblib.dump(calibrator, "calibrator.joblib")
 
         print("Artifacts created: model.joblib, imputer.joblib, scaler.joblib, calibrator.joblib")
+
+        # Metrics
+        # Training Count
+        print(f"Number of Training Observations: {X_train_raw.shape[0]}")
+        # OOB C-Index Calculation
+        oob_c_index = rsf.oob_score_
+        print(f"OOB C-Index (Training Set): {oob_c_index:.3f}")
+        # Test Set Calibrated Risk Predictions - RSF -> CPH 
+        test_rsf_scores = rsf.predict(X_test_final)
+        test_eval_df = pd.DataFrame({"rsf_score": test_rsf_scores})
+
+        # Predict partial hazard scores using lifelines CoxPHFitter
+        test_calibrated_risk = calibrator.predict_partial_hazard(test_eval_df)
+
+        test_c_index, _, _, _, _ = concordance_index_censored(
+            y_test["event"], y_test["time"], test_calibrated_risk.values
+        )
+        print(f"C-Index (Test Set): {test_c_index:.3f}")
+
+        # 10-Year Calibration Error (Brier Score)
+        target_time = 3652.5  # 10 Years in Days
+
+        # Generate survival curves using the lifelines calibrator
+        test_surv_curves = calibrator.predict_survival_function(test_eval_df)
+
+        # Convert the index to a Pandas Series for Math functions
+        times_series = pd.Series(test_surv_curves.index)
+        closest_time_idx = (times_series - target_time).abs().idxmin()
+        closest_time_val = test_surv_curves.index[closest_time_idx]
+
+        # Pull probabilities for each patient at that 10-year timestamp
+        preds_at_10_years = test_surv_curves.loc[closest_time_val].values
+
+        # Calculate the Brier Score using scikit-survival
+        _, brier_scores = brier_score(
+            y_train, y_test, preds_at_10_years, times=[target_time]
+        )
+        print(f"10-Year Calibration Error: {brier_scores[0]:.3f}")
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
