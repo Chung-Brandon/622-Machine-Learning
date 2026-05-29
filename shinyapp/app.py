@@ -1,7 +1,7 @@
 """
 Run this file AFTER train.py or if you have all .joblib artifacts already.
 Assuming existing artifacts and a clean environment, run this command from the same directory:
-python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt && shiny run --reload --launch-browser app.py
+python -m venv .venv && .venv/Scripts/activate && pip install -r requirements.txt && shiny run --reload --launch-browser app.py
 Once inside the virtual environment, only the regular Python commands need to be run.
 """
 import pandas as pd
@@ -271,7 +271,7 @@ def server(input, output, session):
                     sim_survival_prob = calibrated_sim_surv.iloc[:, 0].to_numpy()[sim_closest_idx]
                     sim_risk = (1.0 - sim_survival_prob) * 100
 
-                    reduction = base_risk_pct - sim_risk if direction == "lower" else 0.6
+                    reduction = base_risk_pct - sim_risk if direction == "lower" else 0.0
                     
                     # Adjust the difference required to start displaying a recommendation
                     if reduction > 0.1:
